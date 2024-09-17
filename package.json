@@ -1,0 +1,34 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "jest"
+  },
+  "author": "adarsh",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@socket.io/cluster-adapter": "^0.2.2",
+    "bcrypt": "^5.1.1",
+    "cookie-parser": "^1.4.6",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "elastic-apm-node": "^4.7.3",
+    "express": "^4.20.0",
+    "jsonwebtoken": "^9.0.2",
+    "k6": "^0.0.0",
+    "mongodb": "^6.9.0",
+    "mongoose": "^8.6.2",
+    "morgan": "^1.10.0",
+    "nodemon": "^3.1.4",
+    "pg": "^8.12.0",
+    "redis": "^4.7.0",
+    "sequelize": "^6.37.3",
+    "socket.io": "^4.7.5"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^7.0.0"
+  }
+}
