@@ -69,11 +69,11 @@ form.addEventListener("submit", function (e) {
       })
       .then((data) => {
         console.log("Message sent:", data);
-        socket.emit("chat message", {
-          message: input.value,
-          senderId: userId,
-          receiverId: selectedUser,
-        });
+        // socket.emit("chat message", {
+        //   message: input.value,
+        //   senderId: userId,
+        //   receiverId: selectedUser,
+        // });
         input.value = "";
       })
       .catch((error) => {
@@ -157,9 +157,9 @@ function updateMessageList() {
 }
 
 // Handle incoming chat messages
-socket.on("chat message", (data) => {
+socket.on("message", (data) => {
   console.log("Data received:", data);
-  const { message, senderId, receiverId } = data;
+  const { content, senderId, receiverId } = data;
 
   // Show message if it's for the selected user or if it's from the selected user
   if (selectedUser === receiverId || selectedUser === senderId) {
@@ -178,7 +178,7 @@ socket.on("disconnect", () => {
 });
 
 // Fetch all users
-fetch("/auth/getAllUsers", {
+fetch("/auth/getUsersBasedOnRoles", {
   headers: {
     Authorization: `Bearer ${token}`,
   },

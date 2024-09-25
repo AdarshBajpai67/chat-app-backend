@@ -1,33 +1,53 @@
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 
-const messageSchema = new mongoose.Schema({
-    senderId: {
-        type: String,
-        required: true,
+const messageSchema = new mongoose.Schema(
+  {
+    sender: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "user",
+      required: true,
     },
-    receiverId: {
-        type: String,
-        required: true,
+    receiver: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "user",
+      required: function () {
+        return !this.groupId;  // Receiver is required if groupId is not present
+      },
     },
-    message: {
-        type: String,
-        required: true,
+    groupId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Group", 
+      required: function () {
+        return !this.receiver;  // Group ID is required if no receiver is present
+      },
     },
-    isBroadcast: {
-        type: Boolean,
-        default: false,
+    content: { 
+      type: String, 
+      required: true 
     },
+    isRead: { 
+      type: Boolean, 
+      default: false 
+    },
+    isBroadcast: { 
+      type: Boolean, 
+      default: false },
     status: {
-        type: String,
-        enum: ['sent', 'delivered', 'read'],
-        default: 'sent',
+      type: String,
+      enum: ["sent", "delivered", "read"],
+      default: "sent",
     },
-    timestamp: {
-        type: Date,
-        default: Date.now,
-    }
-});
+    timestamp: { 
+      type: Date, 
+      default: Date.now },
+  },
+  { timestamps: true }
+);
 
-messageSchema.index({ senderId: 1, receiverId: 1 });
+messageSchema.index({ receiver: 1 });
+messageSchema.index({ sender: 1, receiver: 1, timestamp: -1 });
+messageSchema.index({ groupId: 1 });
+messageSchema.index({ isBroadcast: 1 });
 
-module.exports = mongoose.model('Message', messageSchema);
+
+module.exports = mongoose.model("Chat", messageSchema);

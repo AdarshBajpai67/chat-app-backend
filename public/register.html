@@ -36,7 +36,7 @@
         <input type="text" id="username" placeholder="Username" required />
         <input type="email" id="email" placeholder="Email" required />
         <input type="password" id="password" placeholder="Password" required />
-        <input type="role" id="userrole" placeholder="UserRole" required />
+        <input type="role" id="" placeholder="" required />
         <button type="submit">Register</button>
       </form>
       <p>Already have an account? <a href="/index.html">Login</a></p>
@@ -51,10 +51,10 @@
           const email = document.getElementById("email").value;
           const password = document.getElementById("password").value;
           <select id="userType" required>
-        <option value="USER">User</option>
-        <option value="TEACHER">Teacher</option>
-        <option value="ADMIN">Admin</option>
-    </select>
+            <option value="USER">User</option>
+            <option value="TEACHER">Teacher</option>
+            <option value="ADMIN">Admin</option>
+          </select>;
 
           fetch("/auth/signup", {
             method: "POST",
@@ -64,7 +64,7 @@
             body: JSON.stringify({
               userName: username,
               userEmail: email,
-              userPassword: password,
+              password: password,
               userType: userType,
             }),
           })

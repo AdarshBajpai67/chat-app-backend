@@ -1,303 +1,237 @@
-// const redisClient = require("../config/redis");
-// const Message = require("../src/models/messageModel");
-// const User = require("../src/models/userModel");
+const {redisClient} = require("../config/redis");
+const Message = require("../models/messageModel");
+const User = require("../models/userModel");
+const mongoose = require("mongoose");
 
-
-const redisClient=require("../config/redis");
-const fs = require('fs');
-const path = require('path');
-
-const Message=require("../models/messageModel");
-const User=require("../models/userModel");
-
-
-// exports.sendMessageToAdmin = async (req, res) => {
-//   console.log("POST /chat/send hit");
-//   console.log("Request Body:", req.body);
-//   console.log("Request User:", req.user);
-//   try {
-
-//     const { receiverId, message } = req.body;
-//     console.log("Receiver ID:", receiverId);
-//     console.log("Message:", message);
-//     console.log("Request User:", req.user); 
-    
-//     const senderRole = req.user.userRole;
-//     const receiver = await User.findById(receiverId);
-
-//     console.log("Receiver:", receiver);
-//     console.log("receiver.userRole:", receiver.userRole);
-//     if (!receiver) {
-//       return res.status(404).json({ error: "Receiver not found" });
-//     }
-
-//     if (receiver.userRole !== "admin") {
-//       return res.status(403).json({ error: "You can only send messages to admins" });
-//     }
-//     // if (senderRole === 'student' && receiver.userRole !== 'admin') {
-//     //     return res.status(403).json({ error: 'You are not authorized' });
-//     // }
-//     console.log("Sender ID:", req.user.userID);
-//     console.log("req user:", req.user);
-
-//     const newMessage = await Message.create({
-//       senderId: req.user.userID,
-//       receiverId: receiverId,
-//       message,
-//     });
-//     // await newMessage.save();
-//     if (req.io && req.io.sockets) {
-//       console.log("Sending message to receiver socket ID:", receiverId);
-//       req.io.to(receiverId).emit("message", newMessage);
-//     } else {
-//       console.error("Socket.io not initialized properly.");
-//     }
-//     res.status(201).json({ message: "Message sent successfully" });
-//   } catch (error) {
-//     console.error("Error sending message:", error);
-//     res.status(500).json({ error: "Internal server error" });
-//   }
-// };
-
-
-const { performance } = require('perf_hooks'); // Using performance for high-resolution timing
-
-exports.sendMessageToAdmin = async (req, res) => {
+// Retrieve cached data
+const getCachedData = async (key) => {
   try {
-    const { receiverId, message } = req.body;
+    const data = await redisClient.lRange(key, 0, -1);
+    return data.map(item => JSON.parse(item));
+  } catch (error) {
+    console.error(`Error getting cache for key: ${key}`, error);
+    return null;
+  }
+};
 
-    let receiver;
+// Set cached data with dynamic expiry based on access count
+const setCachedData = async (key,  messages, expireSeconds = 3600) => {
+  try {
+    await redisClient.del(key); // Clear existing data
+    for (const message of messages) {
+      const cachedMessage = {
+        _id: message._id.toString(),
+        content: message.content,
+      };
+      await redisClient.lPush(key, JSON.stringify(cachedMessage));
+    }
+    await redisClient.lTrim(key, 0, 9); // Keep only the latest 10 messages
+    await redisClient.expire(key, expireSeconds);
+    console.log(`Successfully cached latest messages for key: ${key}`);
+  } catch (error) {
+    console.error(`Error setting cache for key: ${key}`, error);
+  }
+};
 
-    // Check Redis cache for the receiver
-    const cachedReceiver = await redisClient.get(receiverId);
+const getCacheKey = (userID1, userID2) => `messages:${[userID1, userID2].sort().join(':')}`;
 
-    if (cachedReceiver) {
-      receiver = JSON.parse(cachedReceiver);
-      console.log('Receiver fetched from Redis cache');
-    } else {
-      receiver = await User.findById(receiverId);
+const addMessageToCache = async (senderId, receiverId, message) => {
+  const cacheKey = getCacheKey(senderId, receiverId);
+  try {
+    const cachedMessage = {
+      _id: message._id.toString(), 
+      content: message.content,
+    };
+    await redisClient.lPush(cacheKey, JSON.stringify(cachedMessage));
+    await redisClient.lTrim(cacheKey, 0, 9); // Keep only the latest 10 messages
+    await redisClient.expire(cacheKey, 3600); // Reset expiry to 1 hour
+  } catch (error) {
+    console.error(`Error adding message to cache: ${cacheKey}`, error);
+  }
+};
 
-      if (receiver) {
-        await redisClient.set(receiverId, JSON.stringify(receiver), 'EX', 2*3600); // Cache for 1 hour
-        console.log('Receiver data cached in Redis');
-      }
+const cleanupExpiredKeys = async () => {
+  const script = `
+    local keys = redis.call('KEYS', 'messages:*')
+    local deleted = 0
+    for i, key in ipairs(keys) do
+      if redis.call('TTL', key) <= 0 then
+        redis.call('DEL', key)
+        deleted = deleted + 1
+      end
+    end
+    return deleted
+  `;
+  
+  try {
+    const deletedCount = await redisClient.eval(script, 0);
+    console.log(`Cleaned up ${deletedCount} expired keys`);
+  } catch (error) {
+    console.error('Error during cleanup:', error);
+  }
+}
+
+// Run cleanup every hour
+let cleanupInterval;
+
+exports.startCleanupInterval = () => {
+  cleanupInterval = setInterval(cleanupExpiredKeys, 3600000);
+};
+
+exports.stopCleanupInterval = () => {
+  if (cleanupInterval) {
+    clearInterval(cleanupInterval);
+  }
+};
+
+// Send a message
+exports.sendMessage = async (req, res) => {
+  const { receiverId, message } = req.body;
+  const { userID: senderId, userType } = req.user;
+  // console.log("Full req.user object:", req.user);
+  // console.log("senderId:", senderId);
+  // console.log("userType:", userType);
+
+  try {
+    if (!receiverId || !message) {
+      return res.status(400).json({ error: "receiverId and message are required" });
     }
 
-    // Validation logic
-    if (req.user.userRole === "student" && (!receiver || receiver.userRole !== "admin")) {
-      return res.status(403).json({ error: "You can only send messages to admins." });
-    } else if (req.user.userRole === "admin" && !receiver) {
-      return res.status(404).json({ error: "Receiver not found." });
+    const MAX_PAYLOAD_SIZE = 1024 * 1024; // 1 MB, adjust as needed
+    // console.log('Payload size:', JSON.stringify(req.body).length);
+    if (JSON.stringify(req.body).length > MAX_PAYLOAD_SIZE) {
+      return res.status(413).json({ error: "Payload too large" });
+    }
+    
+
+
+    // let receiver = await getCachedData(`user:${receiverId}:data`);
+    // console.log(' before mongodb Receiver ID:', receiverId);
+    const receiver = await User.findById(new mongoose.Types.ObjectId((receiverId))).select("userName userEmail userType");
+    if(!receiver){
+      return res.status(404).json({ error: "Receiver not found" });
+    }
+    // console.log("Receiver before validating:", receiver);
+
+    if (userType === "USER" && receiver.userType === "USER"){
+      // console.log("Invalid permissions:", userType, receiver.userType);
+      return res.status(403).json({ error: "Only admins and teachers can send messages to user" });
     }
 
-    const newMessage = new Message({
-      senderId: req.user.userID,
-      receiverId,
-      message,
+    // console.log("sending message between: ",userType," and ", receiver.userType," which is ", message)
+    const newMessage =new Message( {
+      sender: senderId,
+      receiver: receiverId,
+      content: message,
       isBroadcast: false,
+      timestamp: new Date()
     });
-    await newMessage.save();
 
-    if (req.io) {
-      req.io.to(receiverId).emit("message", newMessage);
-    } else {
-      console.error("Socket.io not initialized");
-    }
+    const savedMessage = await newMessage.save();
+    // console.log("Message sent successfully:", savedMessage);
+
+    // Now we have an _id, so we can safely cache the message
+    await addMessageToCache(senderId, receiverId, savedMessage);
+
+      if (req.io) {
+        console.log("Emitting message to receiver:", receiverId);
+        req.io.to(receiverId).emit("message", savedMessage);
+      } else {
+        console.warn("Socket.io not initialized");
+      }
 
     res.status(201).json({ message: "Message sent successfully" });
   } catch (error) {
-    console.error("Error sending message:", error.message);
-    console.error("Stack trace:", error.stack);
-    res.status(500).json({ error: "Internal server error" });
+    console.error("Error sending message:", error);
+    if (error.name === 'MongoError' && error.code === 11000) {
+      return res.status(409).json({ error: "Duplicate message detected" });
+    }
+    res.status(500).json({ error: "Internal server error", details: error.message });
   }
 };
 
-
-
-exports.replyToStudent = async (req, res) => {
-  try {
-    const { studentID, message } = req.body;
-    const requestUserId = req.user.userID;
-    console.log('Student ID:', studentID);
-    console.log('Message:', message);
-    console.log("userName",req.user.userName);
-
-    if (req.user.userRole === "student") {
-      return res.status(403).json({ error: "You are not authorized to reply to students" });
-    }
-
-    const receiver = await User.findById(studentID);
-    if (req.user.userRole !== "admin") {
-      return res.status(403).json({ error: "You are not authorized to reply" });
-    }
-    const newMessage = new Message({
-      senderId: requestUserId,
-      receiverId: studentID,
-      message,
-    });
-    await newMessage.save();
-    req.io.to(studentID).emit("message", newMessage);
-    res.status(201).json({ message: "Reply sent successfully" });
-  } catch (error) {
-    console.error("Error replying to student:", error);
-    res.status(500).json({ error: "Internal server error" });
-  }
-};
-
-exports.broadcastMessage = async (req, res) => {
-  try {
-    const { message } = req.body;
-    if (req.user.userRole !== "admin") {
-      return res
-        .status(403)
-        .json({ error: "You are not authorized to broadcast message" });
-    }
-    if (!message) {
-      return res.status(400).json({ error: "Message is required" });
-    }
-    const students = await User.find({ userRole: "student" });
-    const userIDs = students.map((student) => student._id);
-    // const messages = userIDs.map((userID) => {
-    //     return {
-    //         senderId: req.user.userID,
-    //         receiverId: userID,
-    //         message,
-    //         isBroadcast: true,
-    //     };
-    // });
-    const broadcastMessage = new Message({
-      senderId: req.user.userID,
-      receiverId: null,
-      message,
-      isBroadcast: true,
-    });
-    await broadcastMessage.save();
-
-    redisClient.publish(
-      "broadcastChannel",
-      JSON.stringify(message, userIDs),
-      (error) => {
-        if (error) {
-          console.error("Error broadcasting message:", error);
-        }
-      }
-    ); // check
-    res.status(201).json({ message: "Broadcast message sent successfully" });
-  } catch (error) {
-    console.error("Error broadcasting message:", error);
-    res.status(500).json({ error: "Internal server error" });
-  }
-};
 
 exports.specificUserMessages = async (req, res) => {
   try {
     const { requestedUserID } = req.params;
-    const currentUserID = req.user.userID;
-
-    // Check Redis cache for users
-    const cachedCurrentUser = await redisClient.get(currentUserID);
-    const cachedRequestedUser = await redisClient.get(requestedUserID);
-
-    let currentUser = cachedCurrentUser ? JSON.parse(cachedCurrentUser) : null;
-    let requestedUser = cachedRequestedUser ? JSON.parse(cachedRequestedUser) : null;
-
-    // Fetch from DB if not cached
-    if (!currentUser || !requestedUser) {
-      [requestedUser, currentUser] = await Promise.all([
-        !requestedUser ? User.findById(requestedUserID) : requestedUser,
-        !currentUser ? User.findById(currentUserID) : currentUser,
-      ]);
-
-      // Cache fetched users
-      if (requestedUser) await redisClient.set(requestedUserID, JSON.stringify(requestedUser), 'EX', 3600); // 1 hour
-      if (currentUser) await redisClient.set(currentUserID, JSON.stringify(currentUser), 'EX', 3600); // 1 hour
+    const { cursor, limit = 10 } = req.query;
+    
+    if (!requestedUserID) {
+      return res.status(400).json({ error: "User ID is required" });
     }
-
-    if (!currentUser) {
+    if(!User.findById(new mongoose.Types.ObjectId(requestedUserID))){
       return res.status(404).json({ error: "User not found" });
     }
 
-    // Students are not allowed to see each other's messages
-    if (currentUser.userRole === "student" && requestedUser.userRole === "student") {
-      return res.status(403).json({ error: "You are not authorized to view messages" });
-    }
+    // console.log("Requested user ID:", requestedUserID);
+    // console.log("Sender ID:", req.user.userID);
 
-    const cacheKey = `messages:${currentUserID}:${requestedUserID}`;
-    const cachedMessages = await redisClient.get(cacheKey);
-
+    const cacheKey = getCacheKey(req.user.userID, requestedUserID);
     let messages;
-    if (cachedMessages) {
-      messages = JSON.parse(cachedMessages);
-      console.log('Messages fetched from Redis cache');
+    let cachedMessages = await getCachedData(cacheKey);
+
+
+    if (!cursor && cachedMessages && cachedMessages.length > 0) {
+      messages = cachedMessages;
+      console.log("Fetched cached messages:", messages);
     } else {
-      messages = await Message.find({
+      const matchCondition = {
         $or: [
-          { senderId: currentUserID, receiverId: requestedUserID },
-          { senderId: requestedUserID, receiverId: currentUserID },
-        ],
-      })
-        .sort({ timestamp: -1 }) 
-        .limit(10)
-        .lean();
+          { sender: new mongoose.Types.ObjectId(requestedUserID), receiver: new mongoose.Types.ObjectId(req.user.userID) },
+          { sender: new mongoose.Types.ObjectId(req.user.userID), receiver: new mongoose.Types.ObjectId(requestedUserID) }
+        ]
+      };
+      
+    // const allMessages = await Message.find(matchCondition).sort({ timestamp: -1 });
+    // console.log("All matching messages from MongoDB:", allMessages); 
 
-      await redisClient.set(cacheKey, JSON.stringify(messages), 'EX', 3600); // Cache messages for 1 hour
-      console.log('Messages data cached in Redis');
-    }
-
-    res.status(200).json({ message: "Messages:", messages });
-  } catch (error) {
-    console.error("Error getting messages:", error);
-    res.status(500).json({ error: "Internal server error" });
-  }
-};
-
-
-
-exports.getAllMessagesWithRoles = async (req, res) => {
-  console.log("Fetching messages and user roles...");
-  try {
-    // Fetch all messages
-    const messages = await Message.find();
-
-    if (!messages || messages.length === 0) {
-      return res.status(404).json({ error: 'No messages found' });
-    }
-
-    // Collect all unique user IDs from the messages
-    const userIds = [...new Set(messages.flatMap(msg => [msg.senderId, msg.receiverId]))];
-
-    // Fetch all users with those IDs
-    const users = await User.find({ _id: { $in: userIds.map(id => id.toString()) } });
-
-    // Create a map for quick user lookup
-    const userMap = new Map(users.map(user => [user._id.toString(), user]));
-
-    // Initialize log content with a serial number
-    let logContent = "";
-    let serialNumber = 1;
-
-    // Prepare the file path where the log will be stored
-    const logFilePath = path.join(__dirname, 'messages_log.txt');
-
-    // Log roles for messages
-    messages.forEach(message => {
-      const sender = userMap.get(message.senderId.toString());
-      const receiver = userMap.get(message.receiverId.toString());
-
-      if (sender && receiver) {
-        logContent += `${serialNumber++}. Message ID: ${message._id}\n`;
-        logContent += `   Sender ID: ${message.senderId}, Role: ${sender.userRole}\n`;
-        logContent += `   Receiver ID: ${message.receiverId}, Role: ${receiver.userRole}\n\n`;
+      if (cursor) {
+        try {
+          console.log("Parsing cursor:", cursor);
+          matchCondition._id = { $lt: new mongoose.Types.ObjectId(cursor) };
+          console.log("Match condition with cursor:", matchCondition);
+        } catch (error) {
+          console.error("Error parsing cursor ObjectId:", error);
+          return res.status(400).json({ error: "Invalid cursor format" });
+        }
       }
-    });
+      
+      messages = await Message.find(matchCondition)
+  .sort({ timestamp: -1 })
+  .limit(parseInt(limit, 10)); 
 
-    // Write the log content to the text file
-    fs.writeFileSync(logFilePath, logContent, { flag: 'w' });
+  // messages = await Message.aggregate([
+  //   { $match: {...matchCondition} },
+  //   { $sort: { timestamp: -1 } },
+  //   { $limit: parseInt(limit, 10) },
+  //   { $project: { _id: 1, content: 1 } }
+  // ]);
 
-    res.status(200).json({ message: "Messages and user roles logged successfully to the text file." });
+      // console.log("Fetched messages from MongoDB:", messages);
+
+      if (!cursor) {
+      
+        await setCachedData(cacheKey, messages);
+      } // Cache for 1 hour
+    }
+
+    const formattedMessages = messages.map(msg => ({
+      _id: msg._id.toString(),
+      content: msg.content,
+    }));
+
+    const nextCursor = messages.length > 0
+      ? messages[messages.length - 1]._id.toString()
+      : null;
+
+      return res.status(200).json({
+        message: messages.length > 0 ? 'Messages retrieved successfully' : 'No more messages found for this user',
+        data: formattedMessages,
+        nextCursor: nextCursor
+      });
+
   } catch (error) {
-    console.error("Error fetching messages and user roles:", error);
-    res.status(500).json({ error: "Internal server error" });
+    console.error("Error fetching user messages:", error);
+    return res.status(500).json({ error: "An error occurred while fetching messages" });
   }
 };
-

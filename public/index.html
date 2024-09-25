@@ -34,7 +34,7 @@
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ userEmail: useremail, userPassword: password })
+        body: JSON.stringify({ userEmail: useremail, password: password })
       })
       .then(response => response.json())
       .then(data => {

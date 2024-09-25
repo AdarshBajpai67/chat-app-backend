@@ -21,7 +21,7 @@ const verifyToken = (req, res, next) => {
         next();
     } catch (error) {
         console.error('Error verifying token:', error);
-        res.status(403).json({ error: 'Forbidden' });
+        res.status(403).json({ error: 'Please Login Again' });
     }
 }
 

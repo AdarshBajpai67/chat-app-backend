@@ -1,35 +1,43 @@
 const redis = require('redis');
 require('dotenv').config();
 
-const redisClient = redis.createClient({
+const createRedisClient = () => {
+  const client = redis.createClient({
     url: process.env.REDIS_URL,
     socket: {
-        connectTimeout: 10000, // 10 seconds
-        readTimeout: 10000,    // 10 seconds
-        keepAlive: 10000       // 10 seconds
-      }
-});
+      connectTimeout: 10000,
+      readTimeout: 10000,
+      keepAlive: 10000
+    }
+  });
 
-redisClient.on('connect', () => {
-    console.log('Connected to Redis');
-    redisClient.dbSize().then(size => {
-        console.log(`Number of keys in the database: ${size}`);
-    }).catch(err => {
-        console.error('Error fetching DB size:', err);
-    });
-});
+  client.on('error', (err) => console.error('Redis client error:', err));
+  client.on('connect', () => console.log('Redis client connected'));
 
-redisClient.on('error', (err) => {
-    console.error('Redis connection error:', err);
-});
+  return client;
+};
+
+const redisClient = createRedisClient();
+const redisSubscriber = createRedisClient();
 
 (async () => {
-    try {
-        await redisClient.connect();
-        console.log('Redis client connected successfully');
-    } catch (err) {
-        console.error('Error connecting to Redis:', err);
-    }
+  try {
+    await redisClient.connect();
+    await redisSubscriber.connect();
+    console.log('All Redis clients connected successfully');
+  } catch (err) {
+    console.error('Error connecting to Redis:', err);
+  }
 })();
 
-module.exports = redisClient;
+const disconnectRedis = async () => {
+    try {
+      await redisClient.disconnect();
+      await redisSubscriber.disconnect();
+      console.log('All Redis clients disconnected successfully');
+    } catch (err) {
+      console.error('Error disconnecting from Redis:', err);
+    }
+  };
+
+module.exports = { redisClient, redisSubscriber, disconnectRedis };
