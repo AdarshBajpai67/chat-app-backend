@@ -23,51 +23,86 @@ const chatRoutes=require("./src/routes/chatRoutes");
 const broadcastRoutes = require("./src/routes/broadcastRoutes");
 const groupRoutes = require("./src/routes/groupRoutes");
 
-if (cluster.isPrimary) {
-  const numProcesses = require("os").cpus().length;
-  for (let i = 0; i < numProcesses; i++) {
-    cluster.fork({
-      SERVER_PORT: 3000 + i,
-    });
-  }
-  setupPrimary();
-  return;
-}
+// if (cluster.isPrimary) {
+//   const numProcesses = require("os").cpus().length;
+//   for (let i = 0; i < numProcesses; i++) {
+//     cluster.fork({
+//       SERVER_PORT: 3000 + i,
+//     });
+//   }
+//   setupPrimary();
+//   return;
+// }
 
 const app = express();
 const server = http.createServer(app);
 
 server.keepAliveTimeout = 61 * 1000;
 server.setTimeout(2*60000);
+
+
 const io = new Server(server, {
   cors: {
-    origin: "*",
+      origin: "*",
+      methods: ["GET", "POST"]
   },
   connectionStateRecovery: true,
-  adapter: createAdapter(),
+  adapter: cluster.isWorker ? createAdapter() : undefined
+});
+
+io.use((socket, next) => {
+  const token = socket.handshake.auth.token;
+  if (!token) {
+      return next(new Error("Authentication error"));
+  }
+  // Verify token here if needed
+  next();
 });
 
 require("./src/sockets/chat")(io);
 
-// app.use(cors());
+// Middleware
+app.use(cors());
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
-// app.use(cookieParser());
 app.use(morgan("dev"));
-app.use(bodyParser.json({ limit: '1mb' })); // Set the limit according to your needs
+app.use(bodyParser.json({ limit: '1mb' }));
 app.use(bodyParser.urlencoded({ limit: '1mb', extended: true }));
 
+// Serve static files from a public directory
+app.use(express.static(path.join(__dirname, 'public')));
 
-// app.use(express.static(path.join(__dirname, "public")));
-
+// Attach io to request object for use in routes
 app.use((req, res, next) => {
   req.io = io;
   next();
 });
 
+// API Routes
+app.use("/auth", authRoutes);
+app.use("/chat", chatRoutes);
+app.use("/broadcast", broadcastRoutes);
+app.use("/group", groupRoutes);
+
+// Serve the frontend files
 app.get("/", (req, res) => {
-  res.send("Chat Server is running");
+  res.sendFile(path.join(__dirname, 'public', 'login.html'));
 });
+
+app.get("/signup", (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'signup.html'));
+});
+
+app.get("/chat", (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'chat.html'));
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).send('Something broke!');
+});
+
 
 const startServer = async () => {
   try {
@@ -75,10 +110,10 @@ const startServer = async () => {
     console.log("MongoDB connected, starting server...");
 
     // Routes only start after DB connection is established
-    app.use("/auth", authRoutes);
-    app.use("/chat", chatRoutes);
-    app.use("/broadcast", broadcastRoutes);
-    app.use("/group", groupRoutes);
+    // app.use("/auth", authRoutes);
+    // app.use("/chat", chatRoutes);
+    // app.use("/broadcast", broadcastRoutes);
+    // app.use("/group", groupRoutes);
 
     const SERVER_PORT = process.env.SERVER_PORT || 3000;
     server.listen(SERVER_PORT, () => {

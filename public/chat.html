@@ -1,31 +1,622 @@
 <!DOCTYPE html>
-<html>
-<head>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Socket.IO chat</title>
-    <link rel="stylesheet" href="chatStyles.css" />
-</head>
-<body>
-    <div id="groups">
-        <label for="groupSelect">Groups:</label>
-        <select id="groupSelect">
-            <option value="">Select a group</option>
-        </select>
+    <title>Chat App</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      }
+
+      body {
+        height: 100vh;
+        background-color: #f0f2f5;
+      }
+
+      .chat-container {
+        display: flex;
+        height: 100vh;
+        background-color: white;
+      }
+
+      .sidebar {
+        width: 25%;
+        border-right: 1px solid #dadce0;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .chat-area {
+        width: 75%;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .sidebar-header {
+        padding: 1rem;
+        border-bottom: 1px solid #dadce0;
+        background-color: #f8f9fa;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .user-search {
+        padding: 0.5rem;
+        border-bottom: 1px solid #dadce0;
+      }
+
+      .user-search input {
+        width: 100%;
+        padding: 0.5rem;
+        border: 1px solid #dadce0;
+        border-radius: 4px;
+      }
+
+      .user-list {
+        flex: 1;
+        overflow-y: auto;
+      }
+
+      .user-item {
+        padding: 1rem;
+        border-bottom: 1px solid #dadce0;
+        cursor: pointer;
+        transition: background-color 0.2s;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+      }
+
+      .user-item:hover {
+        background-color: #f0f2f5;
+      }
+
+      .user-item.active {
+        background-color: #e8f0fe;
+      }
+
+      .user-avatar {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background-color: #1a73e8;
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: bold;
+      }
+
+      .user-info {
+        flex: 1;
+      }
+
+      .user-name {
+        font-weight: 500;
+      }
+
+      .user-type {
+        font-size: 0.8rem;
+        color: #5f6368;
+      }
+
+      .chat-header {
+        padding: 1rem;
+        border-bottom: 1px solid #dadce0;
+        background-color: #f8f9fa;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+      }
+
+      .messages-container {
+        flex: 1;
+        overflow-y: auto;
+        padding: 1rem;
+        background-color: #f0f2f5;
+        display: flex;
+        flex-direction: column-reverse;
+      }
+
+      .message {
+        margin: 0.5rem 0;
+        max-width: 70%;
+        padding: 0.75rem 1rem;
+        border-radius: 8px;
+        position: relative;
+      }
+
+      .message.sent {
+        background-color: #d9fdd3;
+        margin-left: auto;
+        border-bottom-right-radius: 4px;
+      }
+
+      .message.received {
+        background-color: white;
+        margin-right: auto;
+        border-bottom-left-radius: 4px;
+      }
+
+      .message-time {
+        font-size: 0.7rem;
+        color: #5f6368;
+        text-align: right;
+        margin-top: 0.25rem;
+      }
+
+      .chat-input {
+        padding: 1rem;
+        border-top: 1px solid #dadce0;
+        display: flex;
+        gap: 1rem;
+        background-color: white;
+      }
+
+      .chat-input input {
+        flex: 1;
+        padding: 0.75rem;
+        border: 1px solid #dadce0;
+        border-radius: 4px;
+        font-size: 1rem;
+      }
+
+      .chat-input button {
+        padding: 0.75rem 1.5rem;
+        background-color: #1a73e8;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-weight: 500;
+      }
+
+      .chat-input button:hover {
+        background-color: #1557b0;
+      }
+
+      .loading {
+        text-align: center;
+        padding: 1rem;
+        color: #5f6368;
+      }
+
+      .no-chat-selected {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        color: #5f6368;
+        text-align: center;
+        padding: 2rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="chat-container">
+      <div class="sidebar">
+        <div class="sidebar-header">
+          <h2>Chats</h2>
+          <button onclick="toggleUserList()">All Users</button>
+        </div>
+        <div class="user-search">
+          <input
+            type="text"
+            placeholder="Search users..."
+            onkeyup="searchUsers(this.value)"
+          />
+        </div>
+        <div class="user-list" id="userList">
+          <!-- Users will be populated here -->
+        </div>
+      </div>
+      <div class="chat-area" id="chatArea">
+        <div class="no-chat-selected">
+          <h3>Welcome to Chat</h3>
+          <p>Select a user to start chatting</p>
+        </div>
+      </div>
     </div>
-    <div id="direct-messages">
-        <label for="userSelect">Direct Messages:</label>
-        <select id="userSelect">
-            <option value="">Select a user</option>
-        </select>
-    </div>
-    <div id="selected-info"></div>
-    <ul id="messages"></ul>
-    <form id="form" action="">
-        <input id="input" autocomplete="off" placeholder="Type a message..." />
-        <button type="submit">Send</button>
-        <button type="button" id="toggle-btn">Disconnect</button>
-    </form>
-    <script src="/socket.io/socket.io.js"></script>
-    <script src="chatScripts.js"></script>
-</body>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.1/socket.io.js"></script>
+    <script>
+      let currentChat = null;
+      let socket = null;
+      let users = [];
+      let showingAllUsers = false;
+      let currentPage = 1;
+      let isLoadingMore = false;
+      let hasMoreMessages = true;
+      let activeView = "recent"; // 'recent' or 'all'
+      let recentChats = [];
+      let allUsers = [];
+      let allGroups = [];
+
+      // Initialize WebSocket connection
+      function initializeSocket() {
+        const token = localStorage.getItem("token");
+        if (!token) {
+          window.location.href = "login.html";
+          return;
+        }
+
+        socket = io("http://localhost:3000", {
+          auth: {
+            token: token,
+          },
+        });
+
+        socket.on("connection", () => {
+          console.log("Connected to WebSocket");
+        });
+
+        socket.on("message", (message) => {
+          console.log("message recieved");
+
+          if (
+            currentChat &&
+            (message.sender === currentChat._id ||
+              message.receiver === currentChat._id)
+          ) {
+            appendMessage(message);
+          }
+        });
+
+        socket.on("disconnect", () => {
+          console.log("Disconnected from WebSocket");
+        });
+      }
+
+      // Load chat messages
+      async function loadMessages(userId, initial = true) {
+        if (!userId || isLoadingMore || (!hasMoreMessages && !initial)) return;
+
+        const token = localStorage.getItem("token");
+        try {
+          isLoadingMore = true;
+          const cursor = initial
+            ? ""
+            : document.querySelector(".message:last-child")?.dataset.id;
+          const response = await fetch(
+            `http://localhost:3000/chat/${userId}?cursor=${cursor}`,
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            }
+          );
+          const data = await response.json();
+
+          if (initial) {
+            const messagesContainer = document.getElementById("messages");
+            messagesContainer.innerHTML = "";
+          }
+
+          data.data.forEach((message) => {
+            appendMessage(message, true);
+          });
+
+          hasMoreMessages = data.nextCursor !== null;
+          isLoadingMore = false;
+        } catch (error) {
+          console.error("Error loading messages:", error);
+          isLoadingMore = false;
+        }
+      }
+
+      // Append a new message to the chat
+      function appendMessage(message, prepend = false) {
+        const messagesContainer = document.getElementById("messages");
+        const messageElement = document.createElement("div");
+        // console.log(message);
+
+        messageElement.className = `message ${
+          message.sender === currentChat._id ? "received" : "sent"
+        }`;
+        messageElement.dataset.id = message._id;
+
+        const messageDate = new Date(message.timestamp);
+  const formattedTime = messageDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+
+        messageElement.innerHTML = `
+                <div class="message-content">${message.content}</div>
+                <div class="message-time">${formattedTime}</div>
+            `;
+
+        if (prepend) {
+          messagesContainer.appendChild(messageElement);
+        } else {
+          messagesContainer.insertBefore(
+            messageElement,
+            messagesContainer.firstChild
+          );
+        }
+      }
+
+      // Send a new message
+      async function sendMessage() {
+        const input = document.getElementById("messageInput");
+        const message = input.value.trim();
+
+        if (!message || !currentChat) return;
+
+        const token = localStorage.getItem("token");
+        try {
+        //   console.log("allUsers:", allUsers);
+        //   console.log("allGroups:", allGroups);
+        //   console.log("currentChat:", currentChat);
+        //   console.log("currentChat._id:",currentChat ? currentChat._id : "currentChat is undefined");
+
+          let body = {};
+          let path;
+        //   console.log(allGroups, currentChat._id);
+
+          if (allUsers.some((user) => user._id === currentChat._id)) {
+            path = "chat/send";
+            body = {
+              receiverId: currentChat._id,
+              message: message,
+            };
+          } else if (allGroups.some((group) => group._id === currentChat._id)) {
+            path = "group/sendMessage";
+            body = {
+              groupId: currentChat._id,
+              message: message,
+            };
+          } else {
+            console.error("Neither user nor group found for currentChat._id");
+            return;
+          }
+
+          console.log(path, body);
+          const response = await fetch(`http://localhost:3000/${path}`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify(body),
+          });
+
+          if (response.ok) {
+            input.value = "";
+            // The message will be added to the chat via WebSocket
+            // loadMessages(currentChat._id);
+          }
+        } catch (error) {
+          console.error("Error sending message:", error);
+        }
+      }
+
+      async function loadRecentChats(page = 1) {
+        const token = localStorage.getItem("token");
+        try {
+          // Fetch users with recent messages
+          const usersResponse = await fetch(
+            `http://localhost:3000/auth/getUsersWithMessages?page=${page}`,
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            }
+          );
+          const usersData = await usersResponse.json();
+          allUsers = usersData.users.map((user) => user._id);
+
+          // Fetch groups
+          const groupsResponse = await fetch(
+            `http://localhost:3000/auth/getGroupsForUser?page=${page}`,
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            }
+          );
+          const groupsData = await groupsResponse.json();
+          allGroups = groupsData.groups.map((group) => group._id);
+
+          // Combine users and groups, and sort by last message timestamp
+          recentChats = [
+            ...usersData?.users?.map((user) => ({
+              ...user,
+              type: "user",
+              lastMessage: null, // We'll update this when loading messages
+            })),
+            ...groupsData?.groups?.map((group) => ({
+              ...group,
+              type: "group",
+              lastMessage: null, // We'll update this when loading messages
+            })),
+          ];
+
+          // Load last message for each chat
+          await Promise.all(
+            recentChats.map(async (chat) => {
+              if (chat.type === "user") {
+                const lastMessageResponse = await fetch(
+                  `http://localhost:3000/chat/${chat._id}?limit=1`,
+                  {
+                    headers: {
+                      Authorization: `Bearer ${token}`,
+                    },
+                  }
+                );
+                const lastMessageData = await lastMessageResponse.json();
+                chat.lastMessage = lastMessageData.data[0];
+              } else {
+                // For groups, implement similar logic with group messages endpoint
+                const lastMessageResponse = await fetch(
+                  `http://localhost:3000/auth/getGroupsForUser`,
+                  {
+                    headers: {
+                      Authorization: `Bearer ${token}`,
+                    },
+                  }
+                );
+                const lastMessageData = await lastMessageResponse.json();
+                // console.log(lastMessageData);
+                // chat.lastMessage = lastMessageData.data[0];
+              }
+            })
+          );
+
+          // Sort by last message timestamp
+          recentChats.sort((a, b) => {
+            const timeA = a.lastMessage?.timestamp || 0;
+            const timeB = b.lastMessage?.timestamp || 0;
+            return timeB - timeA;
+          });
+
+          updateUserList();
+        } catch (error) {
+          console.error("Error loading recent chats:", error);
+        }
+      }
+
+      async function toggleUserList() {
+        const token = localStorage.getItem("token");
+        activeView = activeView === "recent" ? "all" : "recent";
+
+        if (activeView === "all") {
+          try {
+            const response = await fetch(
+              "http://localhost:3000/auth/getUsersBasedOnRoles",
+              {
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                },
+              }
+            );
+            const data = await response.json();
+            // console.log(data);
+            allUsers = data.users;
+            allGroups = data.groups;
+            updateUserList();
+          } catch (error) {
+            console.error("Error fetching all users:", error);
+          }
+        } else {
+          await loadRecentChats();
+        }
+      }
+
+      function updateUserList(items = null) {
+        const userList = document.getElementById("userList");
+        const displayItems =
+          items ||
+          (activeView === "recent" ? recentChats : [...allUsers, ...allGroups]);
+
+        userList.innerHTML = displayItems
+          .map(
+            (item) => `
+        <div class="user-item ${currentChat?._id === item._id ? "active" : ""}" 
+             onclick="selectChat('${item._id}', '${item.type || "user"}')">
+            <div class="user-avatar">
+                ${(item.userName || item.groupName || "?")[0].toUpperCase()}
+            </div>
+            <div class="user-info">
+                <div class="user-name">${item.userName || item.groupName}</div>
+                <div class="user-type">
+                    ${item.userType || (item.type === "group" ? "Group" : "")}
+                    ${
+                      item.lastMessage
+                        ? `<br>${item.lastMessage.content.substring(0, 30)}...`
+                        : ""
+                    }
+                </div>
+            </div>
+        </div>
+    `
+          )
+          .join("");
+      }
+
+      // Select a chat (user or group)
+      async function selectChat(id, type) {
+        const token = localStorage.getItem("token");
+        try {
+          if (type === "group") {
+            const response = await fetch(
+              `http://localhost:3000/auth/getUserDataOfGroup/${id}`,
+              {
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                },
+              }
+            );
+            const data = await response.json();
+            currentChat = { _id: id, type: "group", ...data };
+          } else {
+            currentChat =
+              allUsers.find((u) => u._id === id) ||
+              recentChats.find((c) => c._id === id && c.type === "user");
+          }
+
+          updateChatArea();
+          loadMessages(id);
+        } catch (error) {
+          console.error("Error selecting chat:", error);
+        }
+      }
+
+      function updateChatArea() {
+        if (!currentChat) return;
+
+        const chatArea = document.getElementById("chatArea");
+        chatArea.innerHTML = `
+        <div class="chat-header">
+            <div class="user-avatar">
+                ${(currentChat.userName ||
+                  currentChat.groupName ||
+                  "?")[0].toUpperCase()}
+            </div>
+            <div class="user-info">
+                <div class="user-name">${
+                  currentChat.userName || currentChat.groupName
+                }</div>
+                <div class="user-type">${
+                  currentChat.userType ||
+                  (currentChat.type === "group" ? "Group" : "")
+                }</div>
+            </div>
+        </div>
+        <div class="messages-container" id="messages">
+            <!-- Messages will be populated here -->
+        </div>
+        <div class="chat-input">
+            <input type="text" id="messageInput" placeholder="Type a message..." 
+                   onkeypress="if(event.key === 'Enter') sendMessage()">
+            <button onclick="sendMessage()">Send</button>
+        </div>
+    `;
+      }
+
+      // Initialize the chat application
+      async function initializeChat() {
+        initializeSocket();
+        await loadRecentChats();
+
+        // Add scroll listener for infinite scroll
+        const messagesContainer = document.getElementById("messages");
+        messagesContainer?.addEventListener("scroll", () => {
+          if (
+            messagesContainer.scrollTop + messagesContainer.clientHeight >=
+            messagesContainer.scrollHeight - 100
+          ) {
+            loadMessages(currentChat._id, false);
+          }
+        });
+      }
+
+      // Start the application
+      document.addEventListener("DOMContentLoaded", initializeChat);
+    </script>
+  </body>
 </html>

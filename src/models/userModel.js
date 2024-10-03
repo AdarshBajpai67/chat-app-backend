@@ -4,10 +4,10 @@ const schema = mongoose.Schema;
 
 const userSchema = new schema(
   {
-    userName: {
+    userName: {   //full name
       type: String,
     },
-    userEmail: {
+    userEmail: {   //email
       type: String,
       required: true,
       unique: true,

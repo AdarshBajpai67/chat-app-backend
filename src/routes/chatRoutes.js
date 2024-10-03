@@ -12,8 +12,7 @@ router.post("/send", authMiddleware, chatController.sendMessage);
 
 // router.get("/allMessages", chatController.getAllMessagesWithRoles);
 
-router.get("/:requestedUserID",authMiddleware,chatController.specificUserMessages
-);
+router.get("/:requestedUserID",authMiddleware,chatController.specificUserMessages);
 
 module.exports = router;
 

@@ -2,7 +2,7 @@ const { redisClient, redisSubscriber } = require("../config/redis");
 
 module.exports = (io) => {
   io.on("connection", (socket) => {
-    console.log("New client connected:", socket.id);
+    console.log("New client connected: ", socket.id);
 
     // Subscribe to the broadcast channel on Redis
     

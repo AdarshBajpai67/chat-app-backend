@@ -83,6 +83,9 @@ exports.createGroup = async (req, res) => {
 exports.sendGroupMessage = async (req, res) => {
   try {
     const { message, groupId } = req.body;
+    console.log("bodyy ",req.body);
+    console.log("Sender:", req.user);
+    
     if (!message || !groupId) {
       return res.status(400).json({ error: "Message and group ID are required" });
     }

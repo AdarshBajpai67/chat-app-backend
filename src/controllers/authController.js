@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const redisClient = require('../config/redis');
 const User = require('../models/userModel');
 const Group = require('../models/groupModel');
+const Message = require('../models/messageModel');
 
 
 exports.signup = async (req, res) => {
@@ -37,8 +38,8 @@ exports.login = async (req, res) => {
   try {
     const { userEmail, password } = req.body;
     // console.log("Login process started");
-    // console.log("User email:", userEmail);
-    // console.log("Password:", password);
+    console.log("User email:", userEmail);
+    console.log("Password:", password);
 
     // Validate input
     if (!userEmail || !password) {
@@ -123,6 +124,7 @@ exports.getChatTabUsers = async (req, res) => {
         .limit(limitOnGroup);
       totalGroupsCount = await Group.countDocuments({ _id: { $in: groupIds } });
     }
+    // console.log("Users fetched:", users);
 
     res.status(200).json({ users, totalUsersCount, groups, totalGroupsCount });
   } catch (error) {
@@ -167,6 +169,117 @@ exports.getUserDataOfGroup = async (req, res) => {
     res.status(200).json({ groupUsers, removedMembers: nonExistentUserIds });
   } catch (error) {
     console.error("Error fetching group users:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+exports.getUsersWithMessages = async (req, res) => {
+  const { userID, userType } = req.user;
+  const page = req.query.page ? parseInt(req.query.page) : 1;
+  const limit = req.query.limit ? parseInt(req.query.limit) : 10;
+
+  console.log('user', req.user);
+
+  try {
+    // Find users who have exchanged messages with the current user
+    // and get the timestamp of their most recent message
+    const messagePartners = await Message.aggregate([
+      {
+        $match: {
+          $or: [
+            { sender: new mongoose.Types.ObjectId(userID) },
+            { receiver: new mongoose.Types.ObjectId(userID) }
+          ]
+        }
+      },
+      {
+        $sort: { timestamp: -1 }
+      },
+      {
+        $group: {
+          _id: {
+            $cond: [
+              { $eq: ["$sender", new mongoose.Types.ObjectId(userID)] },
+              "$receiver",
+              "$sender"
+            ]
+          },
+          lastMessageTime: { $first: "$timestamp" }
+        }
+      },
+      {
+        $sort: { lastMessageTime: -1 }
+      }
+    ]);
+
+    console.log("Message partners:", messagePartners);
+
+    let userIds = messagePartners.map(partner => partner._id);
+
+    let query = { _id: { $in: userIds, $ne: new mongoose.Types.ObjectId(userID) } };
+
+    // If the user is not an admin, only show admins and teachers
+    if (userType !== "ADMIN") {
+      query.userType = { $in: ["ADMIN", "TEACHER"] };
+    }
+
+    const users = await User.find(query, { _id: 1, userName: 1, email: 1, userType: 1 });
+
+    // Create a map of user IDs to their last message time
+    const userLastMessageMap = new Map(messagePartners.map(partner => [partner._id.toString(), partner.lastMessageTime]));
+
+    // Sort users based on their last message time
+    users.sort((a, b) => {
+      const timeA = userLastMessageMap.get(a._id.toString());
+      const timeB = userLastMessageMap.get(b._id.toString());
+      return timeB - timeA;
+    });
+
+    // Apply pagination after sorting
+    const paginatedUsers = users.slice((page - 1) * limit, page * limit);
+
+    const totalUsersCount = users.length;
+
+    res.status(200).json({
+      users: paginatedUsers,
+      totalUsersCount,
+      currentPage: page,
+      totalPages: Math.ceil(totalUsersCount / limit)
+    });
+  } catch (error) {
+    console.error("Error fetching users with messages:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+exports.getGroupsForUser = async (req, res) => {
+  const { userID, userType } = req.user;
+  console.log("Fetching groups for user:", userID);
+  const page = req.query.page ? parseInt(req.query.page) : 1;
+  const limit = req.query.limit ? parseInt(req.query.limit) : 10;
+
+  try {
+    let query = {members: userID };
+
+    if (userType !== "ADMIN") {
+      // For non-admin users, only fetch groups they're a member of
+      query = { members: userID };
+    }
+
+    const groups = await Group.find(query, { _id: 1, groupName: 1, members: 1 })
+      .skip((page - 1) * limit)
+      .limit(limit);
+
+    const totalGroupsCount = await Group.countDocuments(query);
+
+    res.status(200).json({ 
+      groups, 
+      totalGroupsCount,
+      currentPage: page,
+      totalPages: Math.ceil(totalGroupsCount / limit)
+    });
+  } catch (error) {
+    console.error("Error fetching groups for user:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };
